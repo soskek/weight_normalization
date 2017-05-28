@@ -8,7 +8,7 @@ See [Weight Normalization: A Simple Reparameterization to Accelerate Training of
 
 ## How To Use
 
-If you just wrap a link by my function `convert_with_weight_normalization`,
+If you just wrap a link with my function `convert_with_weight_normalization`,
 the link is transformed to one using weight normalization.
 
 For example, when you define a link with weight normalization,
@@ -28,8 +28,7 @@ which is a common writing respectively.
 
 
 Note: 
-- This function supports only links with a parameter of name `W`. Thus, e.g., `chainer.links.LSTM` is not supported now.
-- This function is tested only for `chainer.links.Linear` and `chainer.links.Convolution2D`. Thus, this can not guarantee that this will work for other untested links which have a `W` parameter (e.g., `chainer.links.ConvolutionND`, `chainer.links.Deconvolution2D`).
+- This function is tested only for `chainer.links.Linear`, `chainer.links.Convolution2D` and `chainer.links.LSTM`. Thus, this can not guarantee that this will work for other untested links which have parameters of `ndim >= 2` (e.g., `chainer.links.ConvolutionND`, `chainer.links.Deconvolution2D`).
 
 
 ## Experiment

@@ -37,22 +37,18 @@ def normalize_variable(W):
     return W / F.broadcast_to(norm, W.shape)
 
 
+__after_setup = True
+
+
 def convert_with_weight_normalization(link_class, *args1, **args2):
     """Weight Normalization Transformer
 
     This function transforms a link to a variant using weight normalization
-    by decomposing a link's parameter `W` into
+    by decomposing a link's each parameter `W` of `ndim >= 2` into
     a direction component `W_v` and a norm component `W_g`
     without large changes of interface.
     Lazy dimension setup of a parameter (e.g., `L.Linear(None, 128)`)
     is currently not supported.
-
-    Note: This function is tested only for :class:`~chainer.links.Linear`
-    and :class:`~chainer.links.Convolution2D`.
-    Thus, this can not guarantee that this will work for
-    other untested links which have a `W` parameter
-    (e.g., :class:`~chainer.links.ConvolutionND`,
-    :class:`~chainer.links.Deconvolution2D`).
 
     TODO: add initialization technieque for weight normalization
 
@@ -77,25 +73,46 @@ def convert_with_weight_normalization(link_class, *args1, **args2):
     class WeightNormalizedLink(link_class):
 
         def __init__(self, *_args1, **_args2):
+            global __after_setup
+            __after_setup = False
             super(WeightNormalizedLink, self).__init__(*_args1, **_args2)
-            W = getattr(self, 'W')
-            assert(isinstance(W, chainer.Variable))
-            delattr(self, 'W')
-            self._params.remove('W')
-            self.add_param('W_v', W.shape)
-            getattr(self, 'W_v').data[:] = normalize(W.data)
-            self.add_param('W_g', (W.shape[0], ) + (1, ) * (W.ndim - 1))
-            getattr(self, 'W_g').data[:] = \
-                get_norm(W.data, expand=True)
-            assert(self.xp.all(
-                abs(W.data - (F.broadcast_to(self.W_g, self.W_v.shape) *
-                              normalize_variable(self.W_v)).data) < 1e-4))
-            setattr(self, '_after_setup', True)
+            self._W_params = []
+            for name, param in list(self.namedparams()):
+                if param.ndim < 2:
+                    continue
+                name = name.lstrip('/')
+                W = param
+                assert(isinstance(W, chainer.Variable))
+                parent = self
+                while '/' in name:
+                    parent = getattr(parent, name.split('/')[0])
+                    name = name[name.index('/') + 1:]
+                if not hasattr(parent, '_W_params'):
+                    parent._W_params = []
+                delattr(parent, name)
+                parent._params.remove(name)
+                parent._W_params.append(name)
+                parent.add_param(name + '_v', W.shape)
+                getattr(parent, name + '_v').data[:] = normalize(W.data)
+                parent.add_param(name + '_g',
+                                 (W.shape[0], ) + (1, ) * (W.ndim - 1))
+                getattr(parent, name + '_g').data[:] = \
+                    get_norm(W.data, expand=True)
+
+            __after_setup = True
 
         def __getattribute__(self, name):
-            if name == 'W' and getattr(self, '_after_setup', False):
-                return F.broadcast_to(self.W_g, self.W_v.shape) * \
-                    normalize_variable(self.W_v)
+            if not __after_setup:
+                return object.__getattribute__(self, name)
+
+            if name == '_W_params':
+                return object.__getattribute__(self, name)
+
+            if name in getattr(self, '_W_params', []):
+                W_g = getattr(self, name + '_g')
+                W_v = getattr(self, name + '_v')
+                return F.broadcast_to(W_g, W_v.shape) * \
+                    normalize_variable(W_v)
             else:
                 return object.__getattribute__(self, name)
 
@@ -161,3 +178,45 @@ if __name__ == '__main__':
     testing.assert_allclose(
         l.W_g.data * normalized_W_v, l.W.data,
         rtol=1e-5)
+
+    n_in, n_out = 3, 5
+    l = convert_with_weight_normalization(L.LSTM, n_in, n_out)
+    for name, param in l.namedparams():
+        if param.ndim < 2:
+            continue
+        name = name.lstrip('/')
+        parent = l
+        while '/' in name:
+            parent = getattr(parent, name.split('/')[0])
+            name = name[name.index('/') + 1:]
+        if 'name' not in getattr(parent, '_W_params', []):
+            continue
+        _W = getattr(parent, name)
+        _W_g = getattr(parent, name + '_g')
+        _W_v = getattr(parent, name + '_v')
+        assert(_W.creator is not None)
+        assert(_W_g.creator is None)
+        assert(_W_v.creator is None)
+        testing.assert_allclose(
+            _W_g.data * F.normalize(_W_v, axis=1).data, _W.data,
+            rtol=1e-5)
+        testing.assert_allclose(
+            _W_g.data * _W_v.data, _W.data,
+            rtol=1e-5)
+        W, W_g, W_v = _W.data + 0, _W_g.data + 0, _W_v.data + 0
+        opt = chainer.optimizers.SGD()
+        opt.setup(l)
+        l.cleargrads()
+        loss = F.sum(l(numpy.random.rand(10, 3).astype('f')) ** 2)
+        loss.backward()
+        opt.update()
+
+        _W = getattr(parent, name)
+        _W_g = getattr(parent, name + '_g')
+        _W_v = getattr(parent, name + '_v')
+        assert(numpy.all(W != _W.data))
+        assert(numpy.all(W_g != _W_g.data))
+        assert(numpy.all(W_v != _W_v.data))
+        testing.assert_allclose(
+            _W_g.data * F.normalize(_W_v, axis=1).data, _W.data,
+            rtol=1e-5)
