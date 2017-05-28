@@ -1,20 +1,15 @@
 import chainer
 from chainer import cuda
 from chainer import functions as F
-
-
-def _as_mat(x):
-    if x.ndim == 2:
-        return x
-    return x.reshape(x.shape[0], -1)
+from chainer.utils import array
 
 
 def get_norm(W, expand=False):
     xp = cuda.get_array_module(W)
-    norm = xp.linalg.norm(_as_mat(W), axis=1) + 1e-12
-    for i in range(W.ndim):
-        if norm.ndim <= i:
-            norm = xp.expand_dims(norm, axis=i)
+    norm = xp.linalg.norm(array.as_mat(W), axis=1) + 1e-12
+    if expand:
+        expanded_shape = (W.shape[0], ) + (1, ) * (W.ndim - 1)
+        norm = norm.reshape(expanded_shape)
     return norm
 
 
@@ -24,11 +19,10 @@ def normalize(W):
 
 
 def get_norm_variable(W, expand=False):
-    norm = F.sqrt(F.sum(_as_mat(W) ** 2, axis=1) + 1e-12)
+    norm = F.sqrt(F.batch_l2_norm_squared(W) + 1e-12)
     if expand:
-        for i in range(W.ndim):
-            if norm.ndim <= i:
-                norm = F.expand_dims(norm, axis=i)
+        expanded_shape = (W.shape[0], ) + (1, ) * (W.ndim - 1)
+        norm = norm.reshape(expanded_shape)
     return norm
 
 
