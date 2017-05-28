@@ -16,22 +16,55 @@ import chainer.links as L
 from chainer import training
 from chainer.training import extensions
 
+import numpy
+
+import weight_normalization as WN
 
 # Network definition
-class MLP(chainer.Chain):
 
-    def __init__(self, n_units, n_out):
-        super(MLP, self).__init__(
-            # the size of the inputs to each layer will be inferred
-            l1=L.Linear(None, n_units),  # n_in -> n_units
-            l2=L.Linear(None, n_units),  # n_units -> n_units
-            l3=L.Linear(None, n_out),  # n_units -> n_out
+
+class WNMLP(chainer.Chain):
+
+    def __init__(self, n_units, n_out, n_layers=3):
+        super(WNMLP, self).__init__(
+            l1=WN.convert_with_weight_normalization(
+                L.Linear, 784, n_units),
+            lo=WN.convert_with_weight_normalization(
+                L.Linear, n_units, n_out),
         )
+        self.n_layers = n_layers
+        for i in range(2, self.n_layers - 1):
+            self.add_link(
+                'l{}'.format(i),
+                WN.convert_with_weight_normalization(
+                    L.Linear, n_units, n_units))
 
     def __call__(self, x):
-        h1 = F.relu(self.l1(x))
-        h2 = F.relu(self.l2(h1))
-        return self.l3(h2)
+        act = F.relu
+        h = x
+        for i in range(1, self.n_layers - 1):
+            h = act(getattr(self, 'l{}'.format(i))(h))
+        return self.lo(h)
+
+
+class MLP(chainer.Chain):
+
+    def __init__(self, n_units, n_out, n_layers=3):
+        super(MLP, self).__init__(
+            # the size of the inputs to each layer will be inferred
+            l1=L.Linear(None, n_units),
+            lo=L.Linear(None, n_out),
+        )
+        self.n_layers = n_layers
+        for i in range(2, self.n_layers - 1):
+            self.add_link('l{}'.format(i), L.Linear(None, n_units))
+
+    def __call__(self, x):
+        act = F.relu
+        h = x
+        for i in range(1, self.n_layers - 1):
+            h = act(getattr(self, 'l{}'.format(i))(h))
+        return self.lo(h)
 
 
 def main():
@@ -48,8 +81,10 @@ def main():
                         help='Directory to output the result')
     parser.add_argument('--resume', '-r', default='',
                         help='Resume the training from snapshot')
-    parser.add_argument('--unit', '-u', type=int, default=1000,
+    parser.add_argument('--unit', '-u', type=int, default=128,
                         help='Number of units')
+    parser.add_argument('--use-wn', '-wn', action='store_const',
+                        const=True, default=False)
     args = parser.parse_args()
 
     print('GPU: {}'.format(args.gpu))
@@ -61,19 +96,25 @@ def main():
     # Set up a neural network to train
     # Classifier reports softmax cross entropy loss and accuracy at every
     # iteration, which will be used by the PrintReport extension below.
-    model = L.Classifier(MLP(args.unit, 10))
+    numpy.random.seed(777)
+    if args.use_wn:
+        model = L.Classifier(WNMLP(args.unit, 10, n_layers=10))
+    else:
+        model = L.Classifier(MLP(args.unit, 10, n_layers=10))
     if args.gpu >= 0:
         # Make a specified GPU current
         chainer.cuda.get_device_from_id(args.gpu).use()
         model.to_gpu()  # Copy the model to the GPU
 
     # Setup an optimizer
-    optimizer = chainer.optimizers.Adam()
+    # optimizer = chainer.optimizers.Adam()
+    optimizer = chainer.optimizers.SGD(lr=1.)
     optimizer.setup(model)
 
     # Load the MNIST dataset
     train, test = chainer.datasets.get_mnist()
 
+    numpy.random.seed(777)
     train_iter = chainer.iterators.SerialIterator(train, args.batchsize)
     test_iter = chainer.iterators.SerialIterator(test, args.batchsize,
                                                  repeat=False, shuffle=False)
