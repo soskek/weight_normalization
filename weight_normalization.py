@@ -31,9 +31,6 @@ def normalize_variable(W):
     return W / F.broadcast_to(norm, W.shape)
 
 
-__after_setup = True
-
-
 def convert_with_weight_normalization(link_class, *args1, **args2):
     """Weight Normalization Transformer
 
@@ -67,10 +64,9 @@ def convert_with_weight_normalization(link_class, *args1, **args2):
     class WeightNormalizedLink(link_class):
 
         def __init__(self, *_args1, **_args2):
-            global __after_setup
-            __after_setup = False
             super(WeightNormalizedLink, self).__init__(*_args1, **_args2)
             self._W_params = []
+            _getattr = object.__getattribute__
             for name, param in list(self.namedparams()):
                 if param.ndim < 2:
                     continue
@@ -79,7 +75,7 @@ def convert_with_weight_normalization(link_class, *args1, **args2):
                 assert(isinstance(W, chainer.Variable))
                 parent = self
                 while '/' in name:
-                    parent = getattr(parent, name.split('/')[0])
+                    parent = _getattr(parent, name.split('/')[0])
                     name = name[name.index('/') + 1:]
                 if not hasattr(parent, '_W_params'):
                     parent._W_params = []
@@ -87,18 +83,13 @@ def convert_with_weight_normalization(link_class, *args1, **args2):
                 parent._params.remove(name)
                 parent._W_params.append(name)
                 parent.add_param(name + '_v', W.shape)
-                getattr(parent, name + '_v').data[:] = normalize(W.data)
+                _getattr(parent, name + '_v').data[:] = normalize(W.data)
                 parent.add_param(name + '_g',
                                  (W.shape[0], ) + (1, ) * (W.ndim - 1))
-                getattr(parent, name + '_g').data[:] = \
+                _getattr(parent, name + '_g').data[:] = \
                     get_norm(W.data, expand=True)
 
-            __after_setup = True
-
         def __getattribute__(self, name):
-            if not __after_setup:
-                return object.__getattribute__(self, name)
-
             if name == '_W_params':
                 return object.__getattribute__(self, name)
 
