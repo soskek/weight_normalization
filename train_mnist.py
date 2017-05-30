@@ -20,8 +20,6 @@ import numpy
 
 import weight_normalization as WN
 
-# Network definition
-
 
 class WNMLP(chainer.Chain):
 
@@ -40,10 +38,13 @@ class WNMLP(chainer.Chain):
                     L.Linear, n_units, n_units))
 
     def __call__(self, x):
-        act = F.relu
+        act = F.leaky_relu
         h = x
         for i in range(1, self.n_layers - 1):
-            h = act(getattr(self, 'l{}'.format(i))(h))
+            if i == 1:
+                h = act(getattr(self, 'l{}'.format(i))(h))
+            else:
+                h = act(getattr(self, 'l{}'.format(i))(h)) + h
         return self.lo(h)
 
 
@@ -51,19 +52,21 @@ class MLP(chainer.Chain):
 
     def __init__(self, n_units, n_out, n_layers=3):
         super(MLP, self).__init__(
-            # the size of the inputs to each layer will be inferred
-            l1=L.Linear(None, n_units),
-            lo=L.Linear(None, n_out),
+            l1=L.Linear(784, n_units),
+            lo=L.Linear(n_units, n_out),
         )
         self.n_layers = n_layers
         for i in range(2, self.n_layers - 1):
-            self.add_link('l{}'.format(i), L.Linear(None, n_units))
+            self.add_link('l{}'.format(i), L.Linear(n_units, n_units))
 
     def __call__(self, x):
-        act = F.relu
+        act = F.leaky_relu
         h = x
         for i in range(1, self.n_layers - 1):
-            h = act(getattr(self, 'l{}'.format(i))(h))
+            if i == 1:
+                h = act(getattr(self, 'l{}'.format(i))(h))
+            else:
+                h = act(getattr(self, 'l{}'.format(i))(h)) + h
         return self.lo(h)
 
 
@@ -71,10 +74,8 @@ def main():
     parser = argparse.ArgumentParser(description='Chainer example: MNIST')
     parser.add_argument('--batchsize', '-b', type=int, default=100,
                         help='Number of images in each mini-batch')
-    parser.add_argument('--epoch', '-e', type=int, default=20,
+    parser.add_argument('--epoch', '-e', type=int, default=1,
                         help='Number of sweeps over the dataset to train')
-    parser.add_argument('--frequency', '-f', type=int, default=-1,
-                        help='Frequency of taking a snapshot')
     parser.add_argument('--gpu', '-g', type=int, default=-1,
                         help='GPU ID (negative value indicates CPU)')
     parser.add_argument('--out', '-o', default='result',
@@ -107,8 +108,7 @@ def main():
         model.to_gpu()  # Copy the model to the GPU
 
     # Setup an optimizer
-    # optimizer = chainer.optimizers.Adam()
-    optimizer = chainer.optimizers.SGD(lr=1.)
+    optimizer = chainer.optimizers.SGD(lr=0.1)
     optimizer.setup(model)
 
     # Load the MNIST dataset
@@ -126,26 +126,8 @@ def main():
     # Evaluate the model with the test dataset for each epoch
     trainer.extend(extensions.Evaluator(test_iter, model, device=args.gpu))
 
-    # Dump a computational graph from 'loss' variable at the first iteration
-    # The "main" refers to the target link of the "main" optimizer.
-    trainer.extend(extensions.dump_graph('main/loss'))
-
-    # Take a snapshot for each specified epoch
-    frequency = args.epoch if args.frequency == -1 else max(1, args.frequency)
-    trainer.extend(extensions.snapshot(), trigger=(frequency, 'epoch'))
-
     # Write a log of evaluation statistics for each epoch
-    trainer.extend(extensions.LogReport())
-
-    # Save two plot images to the result dir
-    if extensions.PlotReport.available():
-        trainer.extend(
-            extensions.PlotReport(['main/loss', 'validation/main/loss'],
-                                  'epoch', file_name='loss.png'))
-        trainer.extend(
-            extensions.PlotReport(
-                ['main/accuracy', 'validation/main/accuracy'],
-                'epoch', file_name='accuracy.png'))
+    trainer.extend(extensions.LogReport(trigger=(1, 'iteration')))
 
     # Print selected entries of the log to stdout
     # Here "main" refers to the target link of the "main" optimizer again, and
@@ -153,15 +135,11 @@ def main():
     # Entries other than 'epoch' are reported by the Classifier link, called by
     # either the updater or the evaluator.
     trainer.extend(extensions.PrintReport(
-        ['epoch', 'main/loss', 'validation/main/loss',
+        ['iteration', 'main/loss', 'validation/main/loss',
          'main/accuracy', 'validation/main/accuracy', 'elapsed_time']))
 
     # Print a progress bar to stdout
     trainer.extend(extensions.ProgressBar())
-
-    if args.resume:
-        # Resume from a snapshot
-        chainer.serializers.load_npz(args.resume, trainer)
 
     # Run the training
     trainer.run()
