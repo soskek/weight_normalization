@@ -1,7 +1,11 @@
 import chainer
 from chainer import cuda
+from chainer import function
 from chainer import functions as F
 from chainer.utils import array
+from chainer.utils import type_check
+
+import numpy
 
 
 def get_norm(W, expand=False):
@@ -29,6 +33,50 @@ def get_norm_variable(W, expand=False):
 def normalize_variable(W):
     norm = get_norm_variable(W, expand=True)
     return W / F.broadcast_to(norm, W.shape)
+
+
+class ReconstructW(function.Function):
+
+    def __init__(self, eps=1e-12):
+        self.eps = eps
+
+    """
+    def check_type_forward(self, in_types):
+        type_check.expect(in_types.size() == 2)
+        W_g_type, W_v_type = in_types
+
+        type_check.expect(
+            W_g_type.dtype == numpy.float32,
+            W_v_type.dtype == numpy.float32,
+        )
+    """
+
+    def forward(self, inputs):
+        W_g, W_v = inputs
+        self.norm_W_v = get_norm(W_v, expand=True)
+        self.normalized_W_v = W_v / self.norm_W_v
+        return W_g * self.normalized_W_v,
+
+    def backward(self, inputs, grad_outputs):
+        W_g, W_v = inputs
+        gW = grad_outputs[0]
+        xp = cuda.get_array_module(W_g)
+
+        gW_g = xp.sum(
+            (gW * self.normalized_W_v).reshape((W_g.shape[0], -1)),
+            axis=1).reshape(W_g.shape)
+        # gW_v = W_g / self.norm_W_v * gW - \
+        #    W_g * gW_g / self.norm_W_v / self.norm_W_v * W_v
+        # gW_v = (W_g / self.norm_W_v) * (gW - gW_g / self.norm_W_v * W_v)
+        # gW_v = (W_g / self.norm_W_v) * (gW - gW_g * W_v / self.norm_W_v)
+        # gW_v = (W_g / self.norm_W_v) * (gW - gW_g * self.normalized_W_v)
+        gW_v = W_g * (gW - gW_g * self.normalized_W_v) / self.norm_W_v
+        #gW_v = W_g / self.norm_W_v * (gW - gW_g * self.normalized_W_v)
+        return gW_g, gW_v,
+
+
+def reconstruct_W(W_g, W_v, eps=1e-12):
+    return ReconstructW(eps)(W_g, W_v)
 
 
 def convert_with_weight_normalization(link_class, *args1, **args2):
@@ -96,8 +144,9 @@ def convert_with_weight_normalization(link_class, *args1, **args2):
             if name in getattr(self, '_W_params', []):
                 W_g = getattr(self, name + '_g')
                 W_v = getattr(self, name + '_v')
-                return F.broadcast_to(W_g, W_v.shape) * \
-                    normalize_variable(W_v)
+                # return F.broadcast_to(W_g, W_v.shape) * \
+                #         normalize_variable(W_v)
+                return reconstruct_W(W_g, W_v)
             else:
                 return object.__getattribute__(self, name)
 
@@ -107,7 +156,6 @@ def convert_with_weight_normalization(link_class, *args1, **args2):
 if __name__ == '__main__':
     from chainer import links as L
     from chainer import testing
-    import numpy
 
     n_in, n_out = 3, 5
     l = convert_with_weight_normalization(L.Linear, n_in, n_out)
@@ -133,6 +181,20 @@ if __name__ == '__main__':
     testing.assert_allclose(
         l.W_g.data * F.normalize(l.W_v, axis=1).data, l.W.data,
         rtol=1e-5)
+
+    x = numpy.random.rand(10, 3).astype('f')
+    l.cleargrads()
+    loss = F.sum(l(x) ** 2)
+    loss.backward()
+    datas1 = (loss.data, l.W_g.data, l.W_v.data, l.W_g.grad, l.W_v.grad)
+
+    l.mode = False
+    l.cleargrads()
+    loss = F.sum(l(x)**2)
+    loss.backward()
+    datas2 = (loss.data, l.W_g.data, l.W_v.data, l.W_g.grad, l.W_v.grad)
+    for a, b in zip(datas1, datas2):
+        testing.assert_allclose(a, b, rtol=1e-5)
 
     n_in, n_out, ksize = 2, 4, 3
     l = convert_with_weight_normalization(
