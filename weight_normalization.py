@@ -71,7 +71,7 @@ class ReconstructW(function.Function):
         # gW_v = (W_g / self.norm_W_v) * (gW - gW_g * W_v / self.norm_W_v)
         # gW_v = (W_g / self.norm_W_v) * (gW - gW_g * self.normalized_W_v)
         gW_v = W_g * (gW - gW_g * self.normalized_W_v) / self.norm_W_v
-        #gW_v = W_g / self.norm_W_v * (gW - gW_g * self.normalized_W_v)
+        # gW_v = W_g / self.norm_W_v * (gW - gW_g * self.normalized_W_v)
         return gW_g, gW_v,
 
 
@@ -79,7 +79,7 @@ def reconstruct_W(W_g, W_v, eps=1e-12):
     return ReconstructW(eps)(W_g, W_v)
 
 
-def convert_with_weight_normalization(link_class, *args1, **args2):
+def convert_with_weight_normalization(link_class, *args, **kwargs):
     """Weight Normalization Transformer
 
     This function transforms a link to a variant using weight normalization
@@ -111,8 +111,8 @@ def convert_with_weight_normalization(link_class, *args1, **args2):
 
     class WeightNormalizedLink(link_class):
 
-        def __init__(self, *_args1, **_args2):
-            super(WeightNormalizedLink, self).__init__(*_args1, **_args2)
+        def __init__(self, *_args, **_kwargs):
+            super(WeightNormalizedLink, self).__init__(*args, **kwargs)
             self._W_params = []
             _getattr = object.__getattribute__
             for name, param in list(self.namedparams()):
@@ -150,7 +150,7 @@ def convert_with_weight_normalization(link_class, *args1, **args2):
             else:
                 return object.__getattribute__(self, name)
 
-    return WeightNormalizedLink(*args1, **args2)
+    return WeightNormalizedLink(*args, **kwargs)
 
 
 if __name__ == '__main__':
