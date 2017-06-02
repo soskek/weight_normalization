@@ -31,6 +31,9 @@ Note:
 - This function is tested only for `chainer.links.Linear`, `chainer.links.Convolution2D` and `chainer.links.LSTM`. Thus, this can not guarantee that this will work for other untested links which have parameters of `ndim >= 2` (e.g., `chainer.links.ConvolutionND`, `chainer.links.Deconvolution2D`).
 
 
+This function works in both chainer v1 and v2 (current).
+
+
 ## Experiment
 
 This is an experiment to train 10-layer residual NN with activations of leaky-relu on MNIST using SGD with a bad learning rate (lr=0.1).

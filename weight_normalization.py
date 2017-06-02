@@ -8,6 +8,9 @@ from chainer.utils import type_check
 import numpy
 
 
+_is_chainer2 = chainer.__version__[0] == '2'
+
+
 def get_norm(W, expand=False):
     xp = cuda.get_array_module(W)
     norm = xp.linalg.norm(array.as_mat(W), axis=1) + 1e-12
@@ -128,7 +131,8 @@ def convert_with_weight_normalization(link_class, *args, **kwargs):
                 if not hasattr(parent, '_W_params'):
                     parent._W_params = []
                 delattr(parent, name)
-                parent._params.remove(name)
+                if not _is_chainer2:
+                    parent._params.remove(name)
                 parent._W_params.append(name)
                 parent.add_param(name + '_v', W.shape)
                 _getattr(parent, name + '_v').data[:] = normalize(W.data)
@@ -198,7 +202,7 @@ if __name__ == '__main__':
 
     n_in, n_out, ksize = 2, 4, 3
     l = convert_with_weight_normalization(
-        L.Convolution2D, n_in, n_out, ksize=ksize, pad=1, wscale=2.)
+        L.Convolution2D, n_in, n_out, ksize=ksize, pad=1)
     assert(l.W.creator is not None)
     assert(l.W_g.creator is None)
     assert(l.W_v.creator is None)
