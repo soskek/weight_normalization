@@ -28,7 +28,8 @@ which is a common writing respectively.
 
 
 Note: 
-- This function is tested only for `chainer.links.Linear`, `chainer.links.Convolution2D` and `chainer.links.LSTM`. Thus, this can not guarantee that this will work for other untested links which have parameters of `ndim >= 2` (e.g., `chainer.links.ConvolutionND`, `chainer.links.Deconvolution2D`).
+- This function only supports links without grand children paramters. For example, `chainer.links.LSTM` is not supported. (If you transform its internal `Linear` directly, it may work.)
+- This function is tested only for `chainer.links.Linear` and `chainer.links.Convolution2D`. Thus, this can not guarantee that this will work for other untested links which have parameters of `ndim >= 2` (e.g., `chainer.links.ConvolutionND`, `chainer.links.Deconvolution2D`).
 
 
 This function works in both chainer v1 and v2 (current).
