@@ -3,6 +3,8 @@
 This repository includes an implemetantion of *Weight Normalization* for [Chainer](https://github.com/pfnet/chainer).
 Weight normalization can help optimization of a model.
 
+*This implementation no longer works with the latest version of Chainer.*
+
 See [Weight Normalization: A Simple Reparameterization to Accelerate Training of Deep Neural Networks](https://arxiv.org/pdf/1602.07868.pdf), Tim Salimans, Diederik P. Kingma, NIPS 2016
 
 
