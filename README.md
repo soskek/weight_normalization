@@ -4,6 +4,7 @@ This repository includes an implemetantion of *Weight Normalization* for [Chaine
 Weight normalization can help optimization of a model.
 
 *This implementation no longer works with the latest version of Chainer.*
+Instead, use [muupan](https://github.com/muupan/chainer-weight-normalization) or [musyoku](https://github.com/musyoku/weight-normalization)'s one.
 
 See [Weight Normalization: A Simple Reparameterization to Accelerate Training of Deep Neural Networks](https://arxiv.org/pdf/1602.07868.pdf), Tim Salimans, Diederik P. Kingma, NIPS 2016
 
